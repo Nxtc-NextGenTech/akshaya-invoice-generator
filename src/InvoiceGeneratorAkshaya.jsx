@@ -562,6 +562,7 @@ export default function InvoiceGeneratorAkshayaCentre() {
               </div>
             </div>
           </div>
+          
 
           {/* Action Buttons */}
           <div className="flex flex-wrap gap-3 justify-end pt-4 border-t border-gray-200 mt-6">
