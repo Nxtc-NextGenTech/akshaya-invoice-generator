@@ -6,7 +6,7 @@ import {
   Save,
   User,
   Smartphone,
-  DollarSign,
+  IndianRupee,
   FileText,
 } from "lucide-react";
 import { itemsList } from "../src/data/itemsList";
@@ -382,7 +382,7 @@ export default function InvoiceGeneratorAkshayaCentre() {
           {/* Item Table */}
           <div className="border border-gray-200 rounded-lg shadow-lg overflow-hidden">
             <div className="bg-blue-600 text-white p-3 font-semibold text-base flex items-center gap-1">
-              <DollarSign size={18} /> Billable Items & Services
+              <IndianRupee size={18} /> Billable Items & Services
             </div>
             <div className="overflow-x-auto">
               <table className="min-w-full text-xs">
@@ -403,7 +403,7 @@ export default function InvoiceGeneratorAkshayaCentre() {
                       key={it.id}
                       className={`${
                         idx % 2 === 0 ? "bg-white" : "bg-gray-50"
-                      } border-b border-gray-100 hover:bg-blue-50 transition`}
+                      } border-b border-gray-100 hover:bg-blue-50 transition align-middle items-center justify-center`}
                     >
                       {/* FIX: Set cell content to flex column to manage select and hint */}
                       <td className="p-2.5">
@@ -414,7 +414,12 @@ export default function InvoiceGeneratorAkshayaCentre() {
                               value: i.name,
                             }))}
                             isClearable
-                            onChange={(opt) => onSelectItem(it.id, opt)}
+                            onChange={(opt) => {
+                              onSelectItem(it.id, opt);
+                              if (opt != null) {
+                                addItemRow();
+                              }
+                            }}
                             placeholder="Search or type item name..."
                             menuPortalTarget={document.body}
                             value={
@@ -436,18 +441,18 @@ export default function InvoiceGeneratorAkshayaCentre() {
                               menu: (base) => ({ ...base, zIndex: 9999 }),
                             }}
                           />
-                          {!it.fromMaster && it.name && (
+                          {/* {!it.fromMaster && it.name && (
                             <p className="text-xs text-orange-600 mt-1 font-medium italic">
                               Custom Item - Set Unit Price.
                             </p>
-                          )}
+                          )} */}
                         </div>
                       </td>
                       <td className="p-2.5 text-center">
                         <input
                           type="number"
-                          min="0.01"
-                          step="0.01"
+                          min="0"
+                          step="1"
                           required
                           value={it.qty}
                           onChange={(e) =>
@@ -462,7 +467,7 @@ export default function InvoiceGeneratorAkshayaCentre() {
                         <input
                           type="number"
                           min="0"
-                          step="0.01"
+                          step="1"
                           value={it.unitPrice}
                           onChange={(e) =>
                             updateItemRow(it.id, {
@@ -472,11 +477,11 @@ export default function InvoiceGeneratorAkshayaCentre() {
                           className="border border-gray-300 p-1.5 rounded-lg text-xs w-20 text-right focus:ring-blue-500 focus:border-blue-500"
                         />
                       </td>
-                      <td className="p-2.5 text-center flex justify-center gap-1 items-center">
+                      <td className="p-2.5 text-center flex justify-center gap-1 items-center align-bottom">
                         <input
                           type="number"
                           min="0"
-                          step="0.01"
+                          step="1"
                           value={it.discount}
                           onChange={(e) =>
                             updateItemRow(it.id, {
@@ -562,7 +567,6 @@ export default function InvoiceGeneratorAkshayaCentre() {
               </div>
             </div>
           </div>
-          
 
           {/* Action Buttons */}
           <div className="flex flex-wrap gap-3 justify-end pt-4 border-t border-gray-200 mt-6">
@@ -611,12 +615,11 @@ export default function InvoiceGeneratorAkshayaCentre() {
           </div>
         </form>
       </div>
-
-      {/* Hidden A4 Print Markup */}
+      {/* Hidden A4 Print Markup  */}
       <div ref={invoiceRef} style={{ display: "none" }}>
         <div className="invoice-box">
           <div className="header">
-            <img src={logo} alt="Akshaya Logo" className="logo-print" />
+            {/* <img src={logo} alt="Akshaya Logo" className="logo-print" /> */}
             <h1>AKSHAYA CENTRE</h1>
             <h2>
               Kolathur - Station Padi | Ph: 9876543210 | GSTIN: XXXXXXXXXXXX
@@ -685,7 +688,12 @@ export default function InvoiceGeneratorAkshayaCentre() {
               {items
                 .filter((it) => it.name && it.price > 0)
                 .map((it, i) => (
-                  <tr key={i}>
+                  <tr
+                    key={i}
+                    style={{
+                      backgroundColor: i % 2 === 1 ? "#f8f9fa" : "white",
+                    }} /* Zebra Striping */
+                  >
                     <td style={{ textAlign: "center" }}>{i + 1}</td>
                     <td>{it.name}</td>
                     <td style={{ textAlign: "center" }}>{it.qty}</td>
@@ -693,6 +701,7 @@ export default function InvoiceGeneratorAkshayaCentre() {
                       {it.unitPrice.toFixed(2)}
                     </td>
                     <td style={{ textAlign: "right", color: "#d97706" }}>
+                      {/* FIX: Correct Discount Display */}
                       {it.discount.toFixed(2)}
                       {it.discountType === "percent" ? "%" : "₹"}
                     </td>
@@ -719,11 +728,11 @@ export default function InvoiceGeneratorAkshayaCentre() {
             </div>
           </div>
 
-          {note && (
+          {
             <div className="note-section">
               <strong>Notes:</strong> {note}
             </div>
-          )}
+          }
 
           <div
             style={{
