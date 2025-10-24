@@ -6,16 +6,23 @@ import {
   Save,
   User,
   Smartphone,
-  IndianRupee,
+  IndianRupee, // Using the requested IndianRupee icon
   FileText,
+  CheckCircle,
+  XCircle,
 } from "lucide-react";
 import { itemsList } from "../src/data/itemsList";
 import { staffList as staffData } from "../src/data/staffList";
 import CreatableSelect from "react-select/creatable";
 import logo from "../src/assets/logo.png"; // UNCOMMENT and provide your logo image
 
+// --- Reusable Utility Functions ---
+
 const API_ENDPOINT =
   "https://script.google.com/macros/s/YOUR_INVOICE_DEPLOY_ID/exec";
+
+const SHEETS_PROXY_URL =
+  "https://script.google.com/macros/s/AKfycbz7rrGv93h4VlqSuISCm4QwzNMjCS07TrTrX4UKU8ai18U5uBx9ySlCJbB8TJY3NwB8/exec";
 
 function todayISO() {
   return new Date().toISOString().slice(0, 10);
@@ -31,6 +38,45 @@ function generateBillNumber() {
   const ms = String(d.getTime()).slice(-6);
   return `INV-${y}${m}${day}-${ms}`;
 }
+
+// --- Custom Status Modal Component ---
+
+const StatusModal = ({ message, type, onClose }) => {
+  const isSuccess = type === "success";
+  const icon = isSuccess ? (
+    <CheckCircle size={36} className="text-green-500" />
+  ) : (
+    <XCircle size={36} className="text-red-500" />
+  );
+  const title = isSuccess ? "Success!" : "Error!";
+  const borderColor = isSuccess ? "border-green-400" : "border-red-400";
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-[100]">
+      <div
+        className={`bg-white p-8 rounded-xl shadow-2xl w-full max-w-sm text-center border-t-8 ${borderColor} transition-all duration-300 transform scale-100`}
+      >
+        <div className="flex justify-center mb-4">{icon}</div>
+        <h3 className="text-xl font-bold mb-3 text-gray-800">{title}</h3>
+        <p className="text-sm text-gray-600 mb-6 whitespace-pre-wrap">
+          {message}
+        </p>
+        <button
+          onClick={onClose}
+          className={`w-full py-2 rounded-lg font-semibold text-white transition ${
+            isSuccess
+              ? "bg-green-600 hover:bg-green-700"
+              : "bg-red-600 hover:bg-red-700"
+          }`}
+        >
+          Close
+        </button>
+      </div>
+    </div>
+  );
+};
+
+// --- Main Component ---
 
 export default function InvoiceGeneratorAkshayaCentre() {
   const invoiceRef = useRef(null);
@@ -49,6 +95,11 @@ export default function InvoiceGeneratorAkshayaCentre() {
   const [masterItems, setMasterItems] = useState([]);
   const [sending, setSending] = useState(false);
 
+  // Modal State
+  const [showModal, setShowModal] = useState(false);
+  const [modalContent, setModalContent] = useState("");
+  const [modalType, setModalType] = useState("error"); // success or error
+
   const [items, setItems] = useState([
     {
       id: uid(),
@@ -63,8 +114,11 @@ export default function InvoiceGeneratorAkshayaCentre() {
   ]);
 
   useEffect(() => {
+    // Simulated fetching from data files
     setMasterItems(itemsList);
     setStaffList(staffData);
+
+    // Auto-fill staff from URL if present
     const params = new URLSearchParams(window.location.search);
     const sid = params.get("staffId");
     if (sid) {
@@ -74,6 +128,13 @@ export default function InvoiceGeneratorAkshayaCentre() {
       if (staff) setCollectedBy(staff.name);
     }
   }, []);
+
+  // Utility function to show the custom modal
+  const showCustomModal = (type, message) => {
+    setModalType(type);
+    setModalContent(message);
+    setShowModal(true);
+  };
 
   function addItemRow() {
     setItems((prev) => [
@@ -100,13 +161,18 @@ export default function InvoiceGeneratorAkshayaCentre() {
       s.map((it) => {
         if (it.id !== id) return it;
         const updated = { ...it, ...changes };
+        // Ensure unitPrice and qty are treated as numbers, default to 0
         const raw = Number(updated.qty || 0) * Number(updated.unitPrice || 0);
         let finalDiscount = 0;
+
+        // Calculate discount amount
         if (updated.discountType === "percent") {
           finalDiscount = (raw * Number(updated.discount || 0)) / 100;
         } else {
           finalDiscount = Number(updated.discount || 0);
         }
+
+        // Final price must be non-negative
         updated.price = Math.max(0, raw - finalDiscount);
         return updated;
       })
@@ -121,6 +187,7 @@ export default function InvoiceGeneratorAkshayaCentre() {
 
     const found = masterItems.find((x) => x.name === selectedOption.value);
     if (found) {
+      // Item from master list
       updateItemRow(rowId, {
         name: found.name,
         unitPrice: found.unitPrice,
@@ -128,6 +195,7 @@ export default function InvoiceGeneratorAkshayaCentre() {
         fromMaster: true,
       });
     } else {
+      // New custom item typed or selected
       updateItemRow(rowId, {
         name: selectedOption.value,
         unitPrice: 0,
@@ -165,24 +233,44 @@ export default function InvoiceGeneratorAkshayaCentre() {
     };
   })();
 
+  // --- Common Validation Logic ---
+
+  const validateInputs = (validItems) => {
+    if (!customerName.trim()) {
+      return "Customer Name is mandatory.";
+    }
+    if (!date) {
+      return "Date is mandatory.";
+    }
+    if (!collectedBy || !collectedById) {
+      return "Staff (Collected By) selection is mandatory.";
+    }
+    if (validItems.length === 0) {
+      return "Please add at least one item with a positive price.";
+    }
+    return null; // Validation passed
+  };
+
+  // --- Save Logic ---
+
   async function handleSubmit(e) {
     e.preventDefault();
-    if (!collectedBy || !collectedById) {
-      alert("Please select the staff who collected the payment.");
-      return;
-    }
     setSending(true);
 
+    // 1. Filter and Validate Items
     const validItems = items.filter((it) => it.name && it.price > 0);
+    const validationError = validateInputs(validItems);
 
-    if (validItems.length === 0) {
-      alert("Please add at least one valid item with a positive total price.");
+    if (validationError) {
       setSending(false);
+      showCustomModal("error", validationError);
       return;
     }
 
-    const payload = {
-      shopName: "Akshaya Centre, Kolathur - Station Padi",
+    // --- 2. Build and Format the Two-Sheet Payloads (Sheets API Row Format) ---
+
+    // Bill Summary (Sheet 1: bill sheet)
+    const billSummary = {
       billNumber,
       date,
       customerName,
@@ -190,22 +278,90 @@ export default function InvoiceGeneratorAkshayaCentre() {
       collectedBy,
       collectedById,
       note,
-      totals,
-      items: validItems,
+      subtotal: totals.subtotal.toFixed(2),
+      totalDiscount: totals.totalDiscount.toFixed(2),
+      totalAfter: totals.totalAfter.toFixed(2),
+      itemCount: validItems.length,
+      timestamp: new Date().toISOString(),
+    };
+
+    // Convert billSummary object into a single row array (required by Sheets API)
+    // NOTE: Ensure the order of these properties matches the columns in your 'bill sheet'!
+    const billSheetRows = [
+      [
+        billSummary.timestamp,
+        billSummary.billNumber,
+        billSummary.date,
+        billSummary.customerName,
+        billSummary.mobile,
+        billSummary.collectedBy,
+        billSummary.collectedById,
+        billSummary.itemCount,
+        billSummary.subtotal,
+        billSummary.totalDiscount,
+        billSummary.totalAfter,
+        billSummary.note,
+      ],
+    ];
+
+    // Billed Items (Sheet 2: billed items)
+    // Convert array of item objects into an array of row arrays
+    // NOTE: Ensure the order of these properties matches the columns in your 'billed items' sheet!
+    const itemsSheetRows = validItems.map((item, index) => {
+      // Calculate final discount amount for the sheet
+      const discountValue =
+        item.discountType === "amount"
+          ? item.discount
+          : (item.qty * item.unitPrice * item.discount) / 100;
+
+      return [
+        // Common Bill Data
+        billNumber, // Key for linking to the bill summary
+        billSummary.timestamp,
+        billSummary.date,
+        billSummary.collectedBy,
+        // Item Specific Data
+        index + 1,
+        item.name,
+        item.qty,
+        item.unitPrice.toFixed(2),
+        item.discount.toFixed(2),
+        item.discountType,
+        discountValue.toFixed(2),
+        item.price.toFixed(2),
+        item.fromMaster ? "Yes" : "No",
+      ];
+    });
+
+    // Final payload structure for the proxy to split and save
+    const payload = {
+      action: "saveInvoice", // Tells the proxy what to do
+      billData: billSheetRows, // Data for Sheet 1 (Bill Summary)
+      itemsData: itemsSheetRows, // Data for Sheet 2 (Billed Items)
     };
 
     try {
-      const res = await fetch(API_ENDPOINT, {
+      const res = await fetch(SHEETS_PROXY_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
       const json = await res.json();
-      if (!res.ok || json.status !== "success")
-        throw new Error(json?.message || "Save failed");
 
-      printInvoice();
-      // Reset state
+      if (!res.ok || json.status !== "success") {
+        throw new Error(
+          json?.message || "Server responded with an error during save."
+        );
+      }
+
+      // 3. Success Actions
+      printInvoice(true); // Print after successful save
+      showCustomModal(
+        "success",
+        `Invoice ${billNumber} saved successfully. Ready for the next bill.`
+      );
+
+      // Reset state for a new bill
       setBillNumber(generateBillNumber());
       setDate(todayISO());
       setItems([
@@ -224,15 +380,30 @@ export default function InvoiceGeneratorAkshayaCentre() {
       setMobile("");
       setNote("");
     } catch (err) {
-      alert("❌ Error: " + err.message);
+      showCustomModal("error", "Save Failed! " + err.message);
     } finally {
       setSending(false);
     }
   }
 
-  function printInvoice() {
+  // --- Print Logic ---
+
+  function printInvoice(isPostSave = false) {
+    const validItems = items.filter((it) => it.name && it.price > 0);
+    const validationError = validateInputs(validItems);
+
+    if (validationError && !isPostSave) {
+      showCustomModal("error", validationError);
+      return;
+    }
+
+    // If validation fails post-save, the print logic is skipped
+    if (validationError && isPostSave) return;
+
     const markup = invoiceRef.current.innerHTML;
 
+    // NOTE: The inline styles in the Print Markup are also updated
+    // to include the zebra-striping and fix the discount symbol display.
     const styles = `
       <style>
         @page { size: A4; margin: 15mm; } 
@@ -276,15 +447,22 @@ export default function InvoiceGeneratorAkshayaCentre() {
   }
 
   return (
-    // Reduced padding and used smaller fonts (sm/base/lg instead of xl/2xl/3xl)
     <div className="min-h-screen bg-gray-50 py-8">
+      {/* Custom Modal Rendering */}
+      {showModal && (
+        <StatusModal
+          message={modalContent}
+          type={modalType}
+          onClose={() => setShowModal(false)}
+        />
+      )}
+
       <div className="max-w-5xl mx-auto bg-white shadow-2xl rounded-xl p-8 border border-gray-100">
         {/* Header Section */}
         <header className="flex justify-between items-start border-b border-gray-200 pb-4 mb-6">
           <div className="flex items-center gap-3">
             <div className="w-12 h-12 rounded-full bg-blue-600 flex items-center justify-center shadow-lg">
               <img src={logo} alt="Akshaya Logo" className="w-10 h-10" />
-              {/* <span className="text-2xl text-white font-extrabold">A</span> */}
             </div>
             <div>
               <h1 className="text-2xl font-extrabold text-blue-800 tracking-tight">
@@ -321,7 +499,7 @@ export default function InvoiceGeneratorAkshayaCentre() {
             <div className="grid md:grid-cols-4 gap-4">
               <div className="md:col-span-2">
                 <label className="text-xs font-medium text-gray-500 block mb-0.5">
-                  Customer Name (Required)
+                  Customer Name <span className="text-red-500">*</span>
                 </label>
                 <input
                   placeholder="E.g., Anand Varma"
@@ -346,7 +524,7 @@ export default function InvoiceGeneratorAkshayaCentre() {
               {/* Staff Info - Select Field */}
               <div>
                 <label className="text-xs font-medium text-gray-500 block mb-0.5">
-                  Collected By
+                  Collected By <span className="text-red-500">*</span>
                 </label>
                 <select
                   value={collectedById}
@@ -388,7 +566,6 @@ export default function InvoiceGeneratorAkshayaCentre() {
               <table className="min-w-full text-xs">
                 <thead className="bg-blue-50 text-gray-600 border-b border-gray-200">
                   <tr>
-                    {/* Adjusted width for Item Description for better fit */}
                     <th className="p-3 text-left w-[40%]">Item Description</th>
                     <th className="p-3 text-center w-[10%]">Qty</th>
                     <th className="p-3 text-right w-[15%]">Unit Price (₹)</th>
@@ -403,9 +580,8 @@ export default function InvoiceGeneratorAkshayaCentre() {
                       key={it.id}
                       className={`${
                         idx % 2 === 0 ? "bg-white" : "bg-gray-50"
-                      } border-b border-gray-100 hover:bg-blue-50 transition align-middle items-center justify-center`}
+                      } border-b border-gray-100 hover:bg-blue-50 transition`}
                     >
-                      {/* FIX: Set cell content to flex column to manage select and hint */}
                       <td className="p-2.5">
                         <div className="flex flex-col">
                           <CreatableSelect
@@ -417,6 +593,7 @@ export default function InvoiceGeneratorAkshayaCentre() {
                             onChange={(opt) => {
                               onSelectItem(it.id, opt);
                               if (opt != null) {
+                                // Add a new row when an item is selected/created
                                 addItemRow();
                               }
                             }}
@@ -430,8 +607,8 @@ export default function InvoiceGeneratorAkshayaCentre() {
                             styles={{
                               control: (base) => ({
                                 ...base,
-                                minHeight: "36px", // Reduced height
-                                fontSize: "0.85rem", // Reduced font size
+                                minHeight: "36px",
+                                fontSize: "0.85rem",
                                 borderColor: it.fromMaster
                                   ? "#3b82f6"
                                   : "#f59e0b",
@@ -441,6 +618,7 @@ export default function InvoiceGeneratorAkshayaCentre() {
                               menu: (base) => ({ ...base, zIndex: 9999 }),
                             }}
                           />
+                          {/* Restored Custom Item Hint */}
                           {/* {!it.fromMaster && it.name && (
                             <p className="text-xs text-orange-600 mt-1 font-medium italic">
                               Custom Item - Set Unit Price.
@@ -477,7 +655,7 @@ export default function InvoiceGeneratorAkshayaCentre() {
                           className="border border-gray-300 p-1.5 rounded-lg text-xs w-20 text-right focus:ring-blue-500 focus:border-blue-500"
                         />
                       </td>
-                      <td className="p-2.5 text-center flex justify-center gap-1 items-center align-bottom">
+                      <td className="p-2.5 text-center flex justify-center gap-1 items-center">
                         <input
                           type="number"
                           min="0"
@@ -572,7 +750,7 @@ export default function InvoiceGeneratorAkshayaCentre() {
           <div className="flex flex-wrap gap-3 justify-end pt-4 border-t border-gray-200 mt-6">
             <button
               type="button"
-              onClick={() => printInvoice()}
+              onClick={() => printInvoice(false)}
               className="border border-blue-400 text-blue-600 px-5 py-2.5 rounded-lg hover:bg-blue-50 flex items-center gap-2 transition font-semibold text-sm shadow-md"
             >
               <Printer size={18} /> Print Preview (A4)
@@ -615,11 +793,12 @@ export default function InvoiceGeneratorAkshayaCentre() {
           </div>
         </form>
       </div>
-      {/* Hidden A4 Print Markup  */}
+
+      {/* Hidden A4 Print Markup (The Perfect PDF UI) */}
       <div ref={invoiceRef} style={{ display: "none" }}>
         <div className="invoice-box">
           <div className="header">
-            {/* <img src={logo} alt="Akshaya Logo" className="logo-print" /> */}
+            <img src={logo} alt="Akshaya Logo" className="logo-print" />
             <h1>AKSHAYA CENTRE</h1>
             <h2>
               Kolathur - Station Padi | Ph: 9876543210 | GSTIN: XXXXXXXXXXXX
@@ -701,9 +880,10 @@ export default function InvoiceGeneratorAkshayaCentre() {
                       {it.unitPrice.toFixed(2)}
                     </td>
                     <td style={{ textAlign: "right", color: "#d97706" }}>
-                      {/* FIX: Correct Discount Display */}
-                      {it.discount.toFixed(2)}
-                      {it.discountType === "percent" ? "%" : "₹"}
+                      {/* FIX: Correct Discount Display: amount value followed by ₹ or % */}
+                      {it.discountType === "amount"
+                        ? it.discount.toFixed(2) + "₹"
+                        : it.discount.toFixed(2) + "%"}
                     </td>
                     <td style={{ textAlign: "right", fontWeight: "600" }}>
                       {it.price.toFixed(2)}
